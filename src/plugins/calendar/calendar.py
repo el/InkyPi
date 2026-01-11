@@ -27,7 +27,7 @@ class Calendar(BasePlugin):
 
         if not view:
             raise RuntimeError("View is required")
-        elif view not in ["timeGridDay", "timeGridWeek", "dayGridMonth", "listMonth"]:
+        elif view not in ["timeGridDay", "timeGridWeek", "dayGrid", "dayGridMonth", "listMonth"]:
             raise RuntimeError("Invalid view")
 
         if not calendar_urls:
@@ -46,6 +46,7 @@ class Calendar(BasePlugin):
 
         current_dt = datetime.now(tz)
         start, end = self.get_view_range(view, current_dt, settings)
+        logger.debug(f"Fetching events for {start} --> [{current_dt}] --> {end}")
         events = self.fetch_ics_events(calendar_urls, calendar_colors, tz, start, end)
         if not events:
             logger.warn("No events found for ics url")
@@ -99,9 +100,15 @@ class Calendar(BasePlugin):
             end = start + timedelta(days=1)
         elif view == "timeGridWeek":
             if settings.get("displayPreviousDays") == "true":
-                start = current_dt - timedelta(days=current_dt.weekday())
+                week_start_day = int(settings.get("weekStartDay", 1))
+                python_week_start = (week_start_day - 1) % 7
+                offset = (current_dt.weekday() - python_week_start) % 7
+                start = current_dt - timedelta(days=offset)
                 start = datetime(start.year, start.month, start.day)
             end = start + timedelta(days=7)
+        elif view == "dayGrid":
+            start = current_dt - timedelta(weeks=1)
+            end = current_dt + timedelta(weeks=int(settings.get("displayWeeks") or 4))
         elif view == "dayGridMonth":
             start = datetime(current_dt.year, current_dt.month, 1) - timedelta(weeks=1)
             end = datetime(current_dt.year, current_dt.month, 1) + timedelta(weeks=6)
