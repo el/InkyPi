@@ -2,14 +2,24 @@
     <label for="albumProvider" class="form-label">Album Provider:</label>
     <select id="albumProvider" name="albumProvider" class="form-input" onchange="updateTitleOptions(this.value)">
         <option value="Immich">Immich</option>
+        <option value="Google Photos">Google Photos (unofficial)</option>
     </select>
 </div>
 
-<div class="form-group">
+<div class="form-group" id="immichFields">
     <label for="url" class="form-label">Base URL:</label>
-    <input type="text" id="url" name="url" placeholder="Type something..." required class="form-input">
+    <input type="text" id="url" name="url" placeholder="Type something..." class="form-input">
      <label for="album" class="form-label">Album Name:</label>
-    <input type="text" id="album" name="album" placeholder="Type something..." required class="form-input">
+    <input type="text" id="album" name="album" placeholder="Type something..." class="form-input">
+</div>
+
+<div class="form-group" id="googlePhotosFields">
+    <label for="googlePhotosUrl" class="form-label">Shared Album Link:</label>
+    <input type="text" id="googlePhotosUrl" name="googlePhotosUrl" placeholder="https://photos.app.goo.gl/..." class="form-input">
+    <small style="width: 100%; color: var(--text-primary);">
+        Uses an undocumented Google endpoint, since Google discontinued official shared-album API access in 2025 - this may break without warning if Google changes their site.
+        In the Google Photos app, open the album, tap Share &rarr; "Create link", and paste it here. Link sharing must stay turned on for photos to keep loading.
+    </small>
 </div>
 
 <div class="form-group">
@@ -45,17 +55,47 @@
 </div>
 
 <script>
+    function updateTitleOptions(provider) {
+        const immichFields = document.getElementById('immichFields');
+        const googlePhotosFields = document.getElementById('googlePhotosFields');
+        const urlInput = document.getElementById('url');
+        const albumInput = document.getElementById('album');
+        const googlePhotosUrlInput = document.getElementById('googlePhotosUrl');
+        const apiKeyLabel = document.querySelector('.api-key-label');
+
+        if (provider === 'Google Photos') {
+            immichFields.style.display = 'none';
+            googlePhotosFields.style.display = '';
+            urlInput.required = false;
+            albumInput.required = false;
+            googlePhotosUrlInput.required = true;
+            if (apiKeyLabel) apiKeyLabel.style.display = 'none';
+        } else {
+            immichFields.style.display = '';
+            googlePhotosFields.style.display = 'none';
+            urlInput.required = true;
+            albumInput.required = true;
+            googlePhotosUrlInput.required = false;
+            if (apiKeyLabel) apiKeyLabel.style.display = '';
+        }
+    }
+
     // populate form values from plugin settings
     document.addEventListener('DOMContentLoaded', () => {
         let backgroundOption = "blur"
+        let albumProvider = "Immich"
         if (loadPluginSettings) {
             document.getElementById('url').value = pluginSettings.url;
             document.getElementById('album').value = pluginSettings.album;
+            document.getElementById('googlePhotosUrl').value = pluginSettings.googlePhotosUrl || '';
             document.getElementById('padImage').checked = pluginSettings.padImage == 'false';
             document.getElementById('randomize').checked = pluginSettings.randomize;
             document.getElementById('backgroundColor').value = pluginSettings.backgroundColor;
             backgroundOption = pluginSettings.backgroundOption || 'blur'
+            albumProvider = pluginSettings.albumProvider || 'Immich'
         }
         document.querySelector(`input[name="backgroundOption"][value="${backgroundOption}"]`).checked = true;
+        document.getElementById('albumProvider').value = albumProvider;
+        updateTitleOptions(albumProvider);
     });
 </script>

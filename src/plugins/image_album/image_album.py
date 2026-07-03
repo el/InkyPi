@@ -1,12 +1,19 @@
 import logging
+import time
 from random import choice
 
 from PIL import Image, ImageColor, ImageOps
 from utils.http_client import get_http_session
 from plugins.base_plugin.base_plugin import BasePlugin
+from plugins.image_album.google_photos_provider import fetch_album_photo_urls, GooglePhotosScrapeError
 from utils.image_utils import pad_image_blur
 
 logger = logging.getLogger(__name__)
+
+# Re-scraping an album walks every page of Google's undocumented endpoint, so we
+# cache the resulting photo list on the plugin instance and only refresh it
+# periodically rather than on every display refresh.
+GOOGLE_PHOTOS_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 
 class ImmichProvider:
@@ -115,6 +122,34 @@ class ImageAlbum(BasePlugin):
         }
         return template_params
 
+    def _get_google_photos_urls(self, settings, share_url):
+        """Return photo URLs for this shared album, re-scraping only if stale or changed.
+
+        The scraped list is cached on the plugin instance's settings (persisted to
+        device.json like image_upload's rotation index) since a full scrape pages
+        through Google's undocumented endpoint and is too slow/heavy to repeat on
+        every single display refresh.
+        """
+        cache = settings.get('googlePhotosCache') or {}
+        cache_age = time.time() - cache.get('fetchedAt', 0)
+        if (cache.get('shareUrl') == share_url and cache.get('urls')
+                and cache_age < GOOGLE_PHOTOS_CACHE_TTL_SECONDS):
+            logger.debug(f"Using cached Google Photos album ({len(cache['urls'])} photos, {cache_age:.0f}s old)")
+            return cache['urls']
+
+        try:
+            urls = fetch_album_photo_urls(get_http_session(), share_url)
+        except GooglePhotosScrapeError as e:
+            logger.error(f"Failed to scrape Google Photos album: {e}")
+            raise RuntimeError(str(e))
+
+        settings['googlePhotosCache'] = {
+            "shareUrl": share_url,
+            "urls": urls,
+            "fetchedAt": time.time()
+        }
+        return urls
+
     def generate_image(self, settings, device_config):
         logger.info("=== Image Album Plugin: Starting image generation ===")
 
@@ -160,6 +195,29 @@ class ImageAlbum(BasePlugin):
 
                 if not img:
                     logger.error("Failed to retrieve image from Immich")
+                    raise RuntimeError("Failed to load image, please check logs.")
+            case "Google Photos":
+                share_url = settings.get('googlePhotosUrl')
+                if not share_url:
+                    logger.error("Google Photos share URL not provided")
+                    raise RuntimeError("Google Photos shared album link is required.")
+
+                logger.info(f"Google Photos share URL: {share_url}")
+
+                photo_urls = self._get_google_photos_urls(settings, share_url)
+                selected_url = choice(photo_urls)
+                logger.info(f"Selected random photo from {len(photo_urls)} cached album photo(s)")
+
+                # Let loader resize when no padding needed, otherwise load full-size for padding
+                img = self.image_loader.from_url(
+                    selected_url,
+                    dimensions,
+                    timeout_ms=40000,
+                    resize=not use_padding
+                )
+
+                if not img:
+                    logger.error("Failed to load image from Google Photos")
                     raise RuntimeError("Failed to load image, please check logs.")
             case _:
                 logger.error(f"Unknown album provider: {album_provider}")
