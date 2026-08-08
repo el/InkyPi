@@ -1,0 +1,211 @@
+/* Now Playing
+ *
+ * Nothing here may depend on the time. The rendered image has to be identical across
+ * repeated polls of the same track, otherwise the image hash changes and the e-ink
+ * panel takes a full refresh every poll instead of once per song.
+ *
+ * Type and artwork are sized off the panel's short edge - vh in landscape, vw in the
+ * portrait block below - so the layout holds at any resolution in either orientation.
+ */
+
+.now-playing,
+.idle {
+    font-family: "Jost";
+}
+
+.now-playing {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    height: 100%;
+    gap: 4vh;
+}
+
+.art {
+    flex: 0 0 auto;
+}
+
+.art img {
+    display: block;
+    width: 62vh;
+    height: 62vh;
+    object-fit: cover;
+    border: 0.5vh solid currentColor;
+}
+
+.details {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    height: 62vh;
+}
+
+.track {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.title {
+    font-size: 7.5vh;
+    font-weight: bold;
+    line-height: 1.08;
+    /* Long titles are clamped rather than allowed to push the artist off the panel. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    /* overflow-wrap rather than word-break, so words are only split when one genuinely
+       cannot fit on a line by itself. */
+    overflow-wrap: break-word;
+}
+
+.artist {
+    font-size: 5.2vh;
+    font-weight: normal;
+    line-height: 1.15;
+    margin-top: 1.6vh;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: break-word;
+}
+
+.album {
+    font-size: 3.4vh;
+    font-weight: normal;
+    line-height: 1.2;
+    margin-top: 1.2vh;
+    opacity: 0.7;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: break-word;
+}
+
+.source {
+    flex: 0 0 auto;
+    font-size: 2.6vh;
+    opacity: 0.7;
+    padding-top: 1.6vh;
+    border-top: 0.25vh solid currentColor;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.source .dot {
+    padding: 0 0.7vh;
+}
+
+/* No artwork: the text takes the full panel and scales up to fill it. */
+.now-playing.no-art .details {
+    height: 100%;
+}
+
+.now-playing.no-art .title {
+    font-size: 11vh;
+    -webkit-line-clamp: 3;
+}
+
+.now-playing.no-art .artist {
+    font-size: 6.5vh;
+    margin-top: 2.4vh;
+}
+
+.now-playing.no-art .album {
+    font-size: 4vh;
+}
+
+.idle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.idle-title {
+    font-size: 8vh;
+    opacity: 0.55;
+}
+
+/* Portrait panels: stack the artwork above the text, and size everything off the
+   width instead, which is the short edge in this orientation. */
+@media (max-aspect-ratio: 1/1) {
+    .now-playing {
+        flex-direction: column;
+        justify-content: center;
+        gap: 4vw;
+    }
+
+    .art img {
+        width: 74vw;
+        height: 74vw;
+        border-width: 0.5vw;
+    }
+
+    .details {
+        width: 100%;
+        height: auto;
+        flex: 0 0 auto;
+    }
+
+    .track {
+        flex: 0 0 auto;
+    }
+
+    .title {
+        font-size: 8.5vw;
+    }
+
+    .artist {
+        font-size: 6vw;
+        margin-top: 1.6vw;
+    }
+
+    .album {
+        font-size: 4vw;
+        margin-top: 1.2vw;
+    }
+
+    .source {
+        font-size: 3vw;
+        margin-top: 3vw;
+        padding-top: 1.6vw;
+        border-top-width: 0.25vw;
+    }
+
+    .source .dot {
+        padding: 0 0.7vw;
+    }
+
+    .now-playing.no-art .details {
+        height: 100%;
+        justify-content: center;
+    }
+
+    .now-playing.no-art .title {
+        font-size: 12vw;
+    }
+
+    .now-playing.no-art .artist {
+        font-size: 7.5vw;
+    }
+
+    .now-playing.no-art .album {
+        font-size: 5vw;
+    }
+
+    .idle-title {
+        font-size: 9vw;
+    }
+}

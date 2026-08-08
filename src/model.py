@@ -223,13 +223,25 @@ class Playlist:
         return next((p for p in self.plugins if p.plugin_id == plugin_id and p.name == name), None)
 
     def get_next_plugin(self):
-        """Returns the next plugin instance in the playlist and update the current_plugin_index."""
+        """Returns the next plugin instance in the playlist and update the current_plugin_index.
+
+        Watch only instances (see PluginInstance.is_watch_only) are skipped, since they
+        drive the display from outside the rotation. Returns None when every instance in
+        the playlist is watch only.
+        """
         if self.current_plugin_index is None:
             self.current_plugin_index = 0
         else:
             self.current_plugin_index = (self.current_plugin_index + 1) % len(self.plugins)
-        
-        return self.plugins[self.current_plugin_index]
+
+        # Advance past watch only instances, wrapping at most once around the playlist.
+        for _ in range(len(self.plugins)):
+            plugin = self.plugins[self.current_plugin_index]
+            if not plugin.is_watch_only():
+                return plugin
+            self.current_plugin_index = (self.current_plugin_index + 1) % len(self.plugins)
+
+        return None
 
     def get_priority(self):
         """Determine priority of a playlist, based on the time range"""
@@ -327,6 +339,14 @@ class PluginInstance:
                 return True
 
         return False
+
+    def is_watch_only(self):
+        """Whether this instance drives the display from outside the playlist rotation.
+
+        Watch only instances exist so a plugin can be configured through the normal UI
+        while only appearing when it has something to show (see the Now Playing plugin).
+        """
+        return str(self.settings.get("watchOnly", "false")).lower() == "true"
 
     def get_image_path(self):
         """Formats the image path for this plugin instance."""

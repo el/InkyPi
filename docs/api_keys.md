@@ -94,3 +94,21 @@ Required for the Image Album plugin for the Immich Provider
     ```
     IMMICH_KEY=your-key
     ```
+
+## Home Assistant Token
+
+Required for the Now Playing plugin
+
+- Login to your Home Assistant instance
+- Click your user name at the bottom of the sidebar, then open the **Security** tab
+- Scroll to **Long-lived access tokens** and click **Create token**
+    - Home Assistant only shows the token once, so copy it before closing the dialog
+- Store the token and your Home Assistant address in the .env file
+    ```
+    HOME_ASSISTANT_URL=http://homeassistant.local:8123
+    HOME_ASSISTANT_TOKEN=your-token
+    ```
+- The URL must be reachable from the Raspberry Pi. Use the IP address instead if
+  `.local` hostnames do not resolve on your network.
+- Unlike the other entries here, the plugin needs the URL as well as the token, since it
+  reads your `media_player` entities to populate the speaker list on the settings page.

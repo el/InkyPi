@@ -1,0 +1,6 @@
+{
+    "display_name": "Now Playing",
+    "id": "now_playing",
+    "class": "NowPlaying",
+    "repository": ""
+}

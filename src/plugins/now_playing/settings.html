@@ -1,0 +1,147 @@
+<div class="form-group">
+    <label class="form-label">Speakers to watch:</label>
+    {% if discovery_error %}
+    <small style="width: 100%; color: var(--text-primary);">
+        {{ discovery_error }}<br>
+        Set <code>HOME_ASSISTANT_URL</code> and <code>HOME_ASSISTANT_TOKEN</code> on the API Keys
+        page, then reload this page to pick your speakers from a list. You can also enter entity
+        ids manually below.
+    </small>
+    {% elif not media_players %}
+    <small style="width: 100%; color: var(--text-primary);">
+        No media_player entities found in Home Assistant at {{ home_assistant_url }}.
+    </small>
+    {% else %}
+    <small style="width: 100%; color: var(--text-primary);">
+        Checked in order &mdash; the first one that is playing wins. Put your speaker group above
+        its individual speakers, since casting to a group makes every member report playing too.
+    </small>
+    <div id="entity-list" class="entity-list">
+        {% for player in media_players %}
+        <label class="entity-row">
+            <input type="checkbox" name="entityIds[]" value="{{ player.entity_id }}">
+            <span class="entity-name">{{ player.friendly_name }}</span>
+            <span class="entity-id">{{ player.entity_id }}</span>
+        </label>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="form-group">
+    <label for="manualEntityIds" class="form-label">Additional Entity IDs:</label>
+    <input type="text" id="manualEntityIds" name="manualEntityIds" class="form-input"
+           placeholder="media_player.kitchen, media_player.office">
+    <small style="width: 100%; color: var(--text-primary);">
+        Optional, comma separated. Useful if an entity is not listed above.
+    </small>
+</div>
+
+<div class="form-group">
+    <label for="pollInterval" class="form-label">Poll Interval (seconds):</label>
+    <input type="number" id="pollInterval" name="pollInterval" class="form-input"
+           min="5" max="600" value="{{ default_poll_interval }}">
+    <small style="width: 100%; color: var(--text-primary);">
+        How often Home Assistant is checked. The display itself only refreshes when the track
+        changes, so a short interval here does not mean more e-ink refreshes.
+    </small>
+</div>
+
+<div class="form-group">
+    <div class="form-group">
+        <label for="watchOnly" class="form-label">Watch Only:</label>
+        <div class="toggle-container">
+            <input type="checkbox" id="watchOnly" name="watchOnly" class="toggle-checkbox" value="true"
+                onclick="this.value = this.checked ? 'true' : 'false'" checked>
+            <label for="watchOnly" class="toggle-label"></label>
+        </div>
+        <!-- Hidden input ensures 'false' is sent when the toggle is off -->
+        <input type="hidden" name="watchOnly" value="false">
+        <small style="width: 100%; color: var(--text-primary);">
+            Leave this on. The plugin then takes over the display while music is playing and stays
+            out of the normal playlist rotation the rest of the time. Turn it off to make it a
+            regular playlist plugin instead.
+        </small>
+    </div>
+
+    <div class="form-group">
+        <label for="includePaused" class="form-label">Keep Showing When Paused:</label>
+        <div class="toggle-container">
+            <input type="checkbox" id="includePaused" name="includePaused" class="toggle-checkbox" value="true"
+                onclick="this.value = this.checked ? 'true' : 'false'" checked>
+            <label for="includePaused" class="toggle-label"></label>
+        </div>
+        <input type="hidden" name="includePaused" value="false">
+    </div>
+
+    <div class="form-group">
+        <label for="showSource" class="form-label">Show Speaker and App Name:</label>
+        <div class="toggle-container">
+            <input type="checkbox" id="showSource" name="showSource" class="toggle-checkbox" value="true"
+                onclick="this.value = this.checked ? 'true' : 'false'" checked>
+            <label for="showSource" class="toggle-label"></label>
+        </div>
+        <input type="hidden" name="showSource" value="false">
+    </div>
+</div>
+
+<style>
+    .entity-list {
+        width: 100%;
+        max-height: 220px;
+        overflow-y: auto;
+        border: 1px solid var(--border-color, #ccc);
+        border-radius: 6px;
+        padding: 4px 10px;
+        margin-top: 6px;
+    }
+
+    .entity-row {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 5px 0;
+        cursor: pointer;
+    }
+
+    .entity-row .entity-name {
+        font-weight: 500;
+    }
+
+    .entity-row .entity-id {
+        font-size: 0.8em;
+        opacity: 0.6;
+    }
+</style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const toggles = ['watchOnly', 'includePaused', 'showSource'];
+
+        function syncToggle(input) {
+            input.value = input.checked ? 'true' : 'false';
+        }
+
+        if (loadPluginSettings) {
+            let selected = pluginSettings['entityIds[]'] || pluginSettings.entityIds || [];
+            if (typeof selected === 'string') {
+                selected = [selected];
+            }
+            selected.forEach((entityId) => {
+                const box = document.querySelector(`input[name="entityIds[]"][value="${entityId}"]`);
+                if (box) box.checked = true;
+            });
+
+            document.getElementById('manualEntityIds').value = pluginSettings.manualEntityIds || '';
+            document.getElementById('pollInterval').value =
+                pluginSettings.pollInterval || {{ default_poll_interval }};
+
+            toggles.forEach((name) => {
+                if (pluginSettings[name] === undefined) return;
+                document.getElementById(name).checked = String(pluginSettings[name]) !== 'false';
+            });
+        }
+
+        toggles.forEach((name) => syncToggle(document.getElementById(name)));
+    });
+</script>

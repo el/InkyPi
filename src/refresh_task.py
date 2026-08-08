@@ -12,6 +12,84 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+NOW_PLAYING_PLUGIN_ID = "now_playing"
+
+class NowPlayingWatcher:
+    """Polls Home Assistant so the Now Playing plugin can pre-empt the playlist.
+
+    A "watch only" Now Playing instance is configured through the normal plugin UI but
+    kept out of the playlist rotation. This watcher checks it on every wake of the
+    refresh loop, so the display switches to the current track while music is playing
+    and returns to the playlist when it stops.
+
+    Runs on the existing refresh thread; there is no second thread and no extra locking.
+    """
+
+    def __init__(self, device_config):
+        self.device_config = device_config
+        self.previous_track_key = None
+
+    def find_instance(self, playlist_manager):
+        """Returns the watch only Now Playing instance from any playlist, or None."""
+        for playlist in playlist_manager.playlists:
+            for plugin_instance in playlist.plugins:
+                if plugin_instance.plugin_id == NOW_PLAYING_PLUGIN_ID and plugin_instance.is_watch_only():
+                    return plugin_instance
+        return None
+
+    def get_poll_interval(self, plugin_instance):
+        """Returns how often Home Assistant should be checked, in seconds."""
+        from plugins.now_playing.now_playing import get_poll_interval
+        return get_poll_interval(plugin_instance.settings)
+
+    def poll(self, plugin_instance):
+        """Checks whether any watched media player is playing.
+
+        Returns:
+            (state, just_stopped): the active NowPlayingState or None, and whether this
+            poll is the transition from playing to not playing. On the stop transition
+            the caller forces the playlist to resume immediately instead of waiting out
+            the remainder of the plugin cycle interval.
+        """
+        if plugin_instance is None:
+            self.previous_track_key = None
+            return None, False
+
+        try:
+            # Imported lazily so the refresh task still works if the plugin is removed.
+            from plugins.now_playing.home_assistant import find_active
+            from plugins.now_playing.now_playing import (
+                get_entity_ids,
+                include_paused,
+                load_home_assistant_env,
+            )
+
+            settings = plugin_instance.settings
+            entity_ids = get_entity_ids(settings)
+            if not entity_ids:
+                return None, False
+
+            base_url, token = load_home_assistant_env()
+            if not base_url or not token:
+                logger.warning("Now Playing is configured but Home Assistant credentials are missing.")
+                return None, False
+
+            state = find_active(base_url, token, entity_ids, include_paused(settings))
+        except Exception:
+            # An outage must not stop the refresh loop, and must not be mistaken for
+            # playback stopping - that would flap the display on an unreliable network.
+            logger.exception("Now Playing poll failed")
+            return None, False
+
+        if state is not None:
+            self.previous_track_key = state.track_key()
+            return state, False
+
+        just_stopped = self.previous_track_key is not None
+        self.previous_track_key = None
+        return None, just_stopped
+
+
 class RefreshTask:
     """Handles the logic for refreshing the display using a background thread."""
 
@@ -24,6 +102,8 @@ class RefreshTask:
         self.condition = threading.Condition(self.lock)
         self.running = False
         self.manual_update_request = ()
+
+        self.now_playing_watcher = NowPlayingWatcher(device_config)
 
         self.refresh_event = threading.Event()
         self.refresh_event.set()
@@ -73,7 +153,7 @@ class RefreshTask:
         while True:
             try:
                 with self.condition:
-                    sleep_time = self.device_config.get_config("plugin_cycle_interval_seconds", default=60*60)
+                    sleep_time = self._get_sleep_time()
 
                     # Wait for sleep_time or until notified
                     self.condition.wait(timeout=sleep_time)
@@ -99,11 +179,24 @@ class RefreshTask:
                         if self.device_config.get_config("log_system_stats"):
                             self.log_system_stats()
 
-                        # handle refresh based on playlists
-                        logger.info(f"Running interval refresh check. | current_time: {current_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-                        playlist, plugin_instance = self._determine_next_plugin(playlist_manager, latest_refresh, current_dt)
-                        if plugin_instance:
-                            refresh_action = PlaylistRefresh(playlist, plugin_instance)
+                        # let the Now Playing watcher pre-empt the playlist while music is playing
+                        now_playing_instance = self.now_playing_watcher.find_instance(playlist_manager)
+                        now_playing_state, just_stopped = self.now_playing_watcher.poll(now_playing_instance)
+
+                        if now_playing_state:
+                            logger.info(
+                                f"Now playing on {now_playing_state.entity_id}. | "
+                                f"track: {now_playing_state.title} - {now_playing_state.artist}")
+                            refresh_action = NowPlayingRefresh(now_playing_instance, now_playing_state)
+                        else:
+                            # handle refresh based on playlists
+                            if just_stopped:
+                                logger.info("Playback stopped, resuming the playlist.")
+                            logger.info(f"Running interval refresh check. | current_time: {current_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                            playlist, plugin_instance = self._determine_next_plugin(
+                                playlist_manager, latest_refresh, current_dt, force=just_stopped)
+                            if plugin_instance:
+                                refresh_action = PlaylistRefresh(playlist, plugin_instance, force=just_stopped)
 
                     if refresh_action:
                         plugin_config = self.device_config.get_plugin(refresh_action.get_plugin_id())
@@ -160,8 +253,30 @@ class RefreshTask:
         tz_str = self.device_config.get_config("timezone", default="UTC")
         return datetime.now(pytz.timezone(tz_str))
 
-    def _determine_next_plugin(self, playlist_manager, latest_refresh_info, current_dt):
-        """Determines the next plugin to refresh based on the active playlist, plugin cycle interval, and current time."""
+    def _get_sleep_time(self):
+        """How long to wait before the next check.
+
+        Normally the plugin cycle interval. When a watch only Now Playing instance is
+        configured the loop wakes on its shorter poll interval instead, so playback is
+        picked up promptly. Waking more often does not mean refreshing the display more
+        often - the image hash check below still skips identical frames.
+        """
+        cycle_interval = self.device_config.get_config("plugin_cycle_interval_seconds", default=60*60)
+
+        playlist_manager = self.device_config.get_playlist_manager()
+        now_playing_instance = self.now_playing_watcher.find_instance(playlist_manager)
+        if now_playing_instance:
+            return min(cycle_interval, self.now_playing_watcher.get_poll_interval(now_playing_instance))
+
+        return cycle_interval
+
+    def _determine_next_plugin(self, playlist_manager, latest_refresh_info, current_dt, force=False):
+        """Determines the next plugin to refresh based on the active playlist, plugin cycle interval, and current time.
+
+        When `force` is set the plugin cycle interval is bypassed. Used when playback
+        stops, so the playlist resumes right away rather than after the remainder of the
+        interval that the Now Playing takeover consumed.
+        """
         playlist = playlist_manager.determine_active_playlist(current_dt)
         if not playlist:
             playlist_manager.active_playlist = None
@@ -175,7 +290,7 @@ class RefreshTask:
 
         latest_refresh_dt = latest_refresh_info.get_refresh_datetime()
         plugin_cycle_interval = self.device_config.get_config("plugin_cycle_interval_seconds", default=3600)
-        should_refresh = PlaylistManager.should_refresh(latest_refresh_dt, plugin_cycle_interval, current_dt)
+        should_refresh = force or PlaylistManager.should_refresh(latest_refresh_dt, plugin_cycle_interval, current_dt)
 
         if not should_refresh:
             latest_refresh_str = latest_refresh_dt.strftime('%Y-%m-%d %H:%M:%S') if latest_refresh_dt else "None"
@@ -183,6 +298,10 @@ class RefreshTask:
             return None, None
 
         plugin = playlist.get_next_plugin()
+        if not plugin:
+            logger.info(f"Active playlist '{playlist.name}' has no plugins in the rotation.")
+            return None, None
+
         logger.info(f"Determined next plugin. | active_playlist: {playlist.name} | plugin_instance: {plugin.name}")
 
         return playlist, plugin
@@ -240,6 +359,41 @@ class ManualRefresh(RefreshAction):
     def get_plugin_id(self):
         """Return the plugin ID associated with this refresh."""
         return self.plugin_id
+
+class NowPlayingRefresh(RefreshAction):
+    """Performs a refresh driven by the Now Playing watcher rather than the playlist.
+
+    Attributes:
+        plugin_instance: The watch only Now Playing plugin instance.
+        state: The NowPlayingState the watcher already polled from Home Assistant.
+    """
+
+    def __init__(self, plugin_instance, state):
+        self.plugin_instance = plugin_instance
+        self.state = state
+
+    def get_refresh_info(self):
+        """Return refresh metadata as a dictionary."""
+        return {
+            "refresh_type": "Now Playing",
+            "plugin_id": self.plugin_instance.plugin_id,
+            "plugin_instance": self.plugin_instance.name
+        }
+
+    def get_plugin_id(self):
+        """Return the plugin ID associated with this refresh."""
+        return self.plugin_instance.plugin_id
+
+    def execute(self, plugin, device_config, current_dt: datetime):
+        """Renders the polled state, without asking Home Assistant for it a second time."""
+        settings = dict(self.plugin_instance.settings)
+        settings["_state"] = self.state.to_dict()
+
+        image = plugin.generate_image(settings, device_config)
+        image.save(os.path.join(device_config.plugin_image_dir, self.plugin_instance.get_image_path()))
+        self.plugin_instance.latest_refresh_time = current_dt.isoformat()
+
+        return image
 
 class PlaylistRefresh(RefreshAction):
     """Performs a refresh using a plugin instance within a playlist context.

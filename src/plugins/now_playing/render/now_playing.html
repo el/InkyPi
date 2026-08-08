@@ -1,0 +1,33 @@
+{% extends "plugin.html" %}
+
+{% block content %}
+{% if state %}
+<div class="now-playing {% if not album_art %}no-art{% endif %}">
+  {% if album_art %}
+  <div class="art">
+    <img src="{{ album_art }}" alt="Album art">
+  </div>
+  {% endif %}
+
+  <div class="details">
+    <div class="track">
+      <div class="title">{{ state.title }}</div>
+      {% if state.artist %}<div class="artist">{{ state.artist }}</div>{% endif %}
+      {% if state.album %}<div class="album">{{ state.album }}</div>{% endif %}
+    </div>
+
+    {% if show_source %}
+    <div class="source">
+      <span class="speaker">{{ state.friendly_name }}</span>
+      {% if state.app_name %}<span class="dot">&middot;</span><span class="app">{{ state.app_name }}</span>{% endif %}
+      {% if state.state == 'paused' %}<span class="dot">&middot;</span><span class="paused">Paused</span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="idle">
+  <div class="idle-title">Nothing playing</div>
+</div>
+{% endif %}
+{% endblock %}
