@@ -13,18 +13,37 @@
     </small>
     {% else %}
     <small style="width: 100%; color: var(--text-primary);">
-        Checked in order &mdash; the first one that is playing wins. Put your speaker group above
-        its individual speakers, since casting to a group makes every member report playing too.
+        Live status is shown below, with anything playing right now listed first &mdash; start
+        some music, reload this page, and tick whatever shows a track name. Checked entities are
+        tried in order, so put your speaker group above its individual speakers.
     </small>
     <div id="entity-list" class="entity-list">
         {% for player in media_players %}
-        <label class="entity-row">
+        <label class="entity-row {% if player.usable %}is-usable{% elif player.active %}is-untitled{% endif %}">
             <input type="checkbox" name="entityIds[]" value="{{ player.entity_id }}">
-            <span class="entity-name">{{ player.friendly_name }}</span>
-            <span class="entity-id">{{ player.entity_id }}</span>
+            <span class="entity-text">
+                <span class="entity-name">{{ player.friendly_name }}</span>
+                <span class="entity-id">{{ player.entity_id }}</span>
+                <span class="entity-status">
+                    {%- if player.usable -%}
+                        {{ player.state }} &middot; {{ player.title }}
+                        {%- if player.artist %} &mdash; {{ player.artist }}{% endif -%}
+                    {%- elif player.active -%}
+                        {{ player.state }}, but reports no track name
+                        {%- if player.app_name %} ({{ player.app_name }}){% endif %} &mdash; cannot be used
+                    {%- else -%}
+                        {{ player.state }}
+                    {%- endif -%}
+                </span>
+            </span>
         </label>
         {% endfor %}
     </div>
+    <small style="width: 100%; color: var(--text-primary);">
+        An entity that is playing but reports no track name cannot drive this plugin, since there
+        is nothing to show. That is common for speaker groups and Spotify Connect: pick the source
+        that carries the metadata instead, such as a Music Assistant or Spotify player.
+    </small>
     {% endif %}
 </div>
 
@@ -98,10 +117,20 @@
 
     .entity-row {
         display: flex;
-        align-items: baseline;
+        align-items: flex-start;
         gap: 8px;
-        padding: 5px 0;
+        padding: 6px 0;
         cursor: pointer;
+    }
+
+    .entity-row + .entity-row {
+        border-top: 1px solid var(--border-color, #eee);
+    }
+
+    .entity-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
     }
 
     .entity-row .entity-name {
@@ -110,7 +139,23 @@
 
     .entity-row .entity-id {
         font-size: 0.8em;
-        opacity: 0.6;
+        opacity: 0.55;
+    }
+
+    .entity-row .entity-status {
+        font-size: 0.8em;
+        opacity: 0.75;
+    }
+
+    .entity-row.is-usable .entity-status {
+        color: #1b7f3b;
+        font-weight: 500;
+        opacity: 1;
+    }
+
+    .entity-row.is-untitled .entity-status {
+        color: #a8611a;
+        opacity: 1;
     }
 </style>
 

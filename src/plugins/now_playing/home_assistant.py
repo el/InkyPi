@@ -111,9 +111,15 @@ def list_media_players(base_url, token, timeout=DEFAULT_TIMEOUT):
     Used to populate the entity picker on the settings page, so it must never raise -
     the settings page has to render even when Home Assistant is unreachable.
 
+    Each entry carries what the player is doing right now, so the picker can show which
+    entities are actually usable. Speaker groups and Connect-style sources often report
+    `playing` with no media_title at all, and an entity like that can never drive this
+    plugin - `usable` marks the difference.
+
     Returns:
-        (entities, error): a list of {entity_id, friendly_name, state} sorted by name,
-        and an error string (empty when the lookup succeeded).
+        (entities, error): a list of dicts with entity_id, friendly_name, state, title,
+        artist, app_name and usable, active players first and then by name; plus an
+        error string (empty when the lookup succeeded).
     """
     if not base_url or not token:
         return [], "Set HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN in your .env file."
@@ -129,14 +135,23 @@ def list_media_players(base_url, token, timeout=DEFAULT_TIMEOUT):
         entity_id = entity.get("entity_id", "")
         if not entity_id.startswith("media_player."):
             continue
-        attributes = entity.get("attributes") or {}
+
+        state = NowPlayingState.from_entity(entity)
+        is_active = state.state in PLAYING_STATES + PAUSED_STATES
         media_players.append({
             "entity_id": entity_id,
-            "friendly_name": attributes.get("friendly_name") or entity_id,
-            "state": entity.get("state", "unknown"),
+            "friendly_name": state.friendly_name,
+            "state": state.state or "unknown",
+            "title": state.title,
+            "artist": state.artist,
+            "app_name": state.app_name,
+            "active": is_active,
+            # The same test find_active applies, so the picker agrees with the watcher.
+            "usable": is_active and bool(state.title.strip()),
         })
 
-    media_players.sort(key=lambda p: p["friendly_name"].lower())
+    # Whatever is playing right now goes to the top, where it is easy to pick.
+    media_players.sort(key=lambda p: (not p["usable"], not p["active"], p["friendly_name"].lower()))
     return media_players, ""
 
 

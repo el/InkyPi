@@ -234,17 +234,56 @@ class TestListMediaPlayers:
         assert players == []
         assert "HOME_ASSISTANT_URL" in error
 
-    def test_filters_to_media_players_sorted_by_name(self, monkeypatch):
+    def test_filters_to_media_players_and_lists_usable_ones_first(self, monkeypatch):
+        """The picker has to surface whatever is actually playing, since that is the
+        entity the user needs to tick."""
         monkeypatch.setattr(home_assistant, "_request_json", lambda *a, **k: [
             {"entity_id": "light.kitchen", "state": "on", "attributes": {}},
-            {"entity_id": "media_player.zone", "state": "idle", "attributes": {"friendly_name": "Zone"}},
-            {"entity_id": "media_player.attic", "state": "playing", "attributes": {"friendly_name": "Attic"}},
+            {"entity_id": "media_player.zone", "state": "idle",
+             "attributes": {"friendly_name": "Zone"}},
+            # Playing but no title: the speaker-group / Spotify Connect case.
+            {"entity_id": "media_player.group", "state": "playing",
+             "attributes": {"friendly_name": "Speakers", "app_name": "Spotify"}},
+            {"entity_id": "media_player.attic", "state": "playing",
+             "attributes": {"friendly_name": "Attic", "media_title": "Idioteque",
+                            "media_artist": "Radiohead"}},
         ])
 
         players, error = home_assistant.list_media_players(BASE_URL, TOKEN)
 
         assert error == ""
-        assert [p["entity_id"] for p in players] == ["media_player.attic", "media_player.zone"]
+        assert [p["entity_id"] for p in players] == [
+            "media_player.attic",   # usable: playing with a title
+            "media_player.group",   # active but untitled
+            "media_player.zone",    # idle
+        ]
+
+        usable, untitled, idle = players
+        assert (usable["usable"], usable["active"]) == (True, True)
+        assert usable["title"] == "Idioteque"
+        assert (untitled["usable"], untitled["active"]) == (False, True)
+        assert untitled["app_name"] == "Spotify"
+        assert (idle["usable"], idle["active"]) == (False, False)
+
+    def test_picker_agrees_with_find_active(self, monkeypatch):
+        """Anything the picker marks usable must be something find_active would pick,
+        otherwise the settings page recommends entities that render nothing."""
+        entities = [
+            {"entity_id": "media_player.group", "state": "playing",
+             "attributes": {"friendly_name": "Speakers"}},
+            {"entity_id": "media_player.attic", "state": "paused",
+             "attributes": {"friendly_name": "Attic", "media_title": "Idioteque"}},
+            {"entity_id": "media_player.zone", "state": "off", "attributes": {}},
+        ]
+        by_id = {e["entity_id"]: e for e in entities}
+        monkeypatch.setattr(home_assistant, "_request_json", lambda base, tok, path, timeout=5:
+                            entities if path == "/api/states" else by_id[path.rsplit("/", 1)[-1]])
+
+        players, _ = home_assistant.list_media_players(BASE_URL, TOKEN)
+
+        for player in players:
+            found = find_active(BASE_URL, TOKEN, [player["entity_id"]], include_paused=True)
+            assert (found is not None) == player["usable"], player["entity_id"]
 
 
 class TestSettingsParsing:
