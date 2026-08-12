@@ -34,16 +34,55 @@
                 "name": "Default",
                 "start_time": "00:00",
                 "end_time": "24:00",
-                "plugins": [],
-                "current_plugin_index": null
+                "plugins": [
+                    {
+                        "plugin_id": "clock",
+                        "name": "Clock",
+                        "plugin_settings": {
+                            "selectedClockFace": "Default",
+                            "primaryColor": "#000000",
+                            "secondaryColor": "#888888"
+                        },
+                        "refresh": {
+                            "interval": 3600
+                        },
+                        "latest_refresh_time": "2026-08-12T07:53:06.370191+00:00"
+                    },
+                    {
+                        "plugin_id": "now_playing",
+                        "name": "Speakers",
+                        "plugin_settings": {
+                            "entityIds[]": [
+                                "media_player.speakers_6"
+                            ],
+                            "manualEntityIds": "",
+                            "pollInterval": "5",
+                            "watchOnly": "true",
+                            "includePaused": "true",
+                            "pausedTimeout": "1",
+                            "showSource": "true",
+                            "backgroundOption": "color",
+                            "backgroundColor": "#ffffff",
+                            "textColor": "#000000",
+                            "selectedFrame": "None"
+                        },
+                        "refresh": {
+                            "interval": 3600
+                        },
+                        "latest_refresh_time": "2026-08-12T07:52:58.833475+00:00"
+                    }
+                ],
+                "current_plugin_index": 0
             }
         ],
-        "active_playlist": null
+        "active_playlist": "Default"
     },
     "refresh_info": {
-        "refresh_time": null,
-        "image_hash": null,
-        "refresh_type": null,
-        "plugin_id": null
+        "refresh_time": "2026-08-12T07:53:06.370191+00:00",
+        "image_hash": "782136f1f69d3f531c2595427ea49ac06abe17af0b1697d513cdc798d9095038",
+        "refresh_type": "Playlist",
+        "plugin_id": "clock",
+        "playlist": "Default",
+        "plugin_instance": "Clock"
     }
 }

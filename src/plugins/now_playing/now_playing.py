@@ -22,6 +22,11 @@ HA_TOKEN_KEY = "HOME_ASSISTANT_TOKEN"
 DEFAULT_POLL_INTERVAL = 30
 MIN_POLL_INTERVAL = 5
 
+# How long a paused player keeps the display before the playlist takes it back. Cast
+# groups and Music Assistant players often park in `paused` rather than going idle when
+# playback stops, so an unbounded hold pins the last track on the panel indefinitely.
+DEFAULT_PAUSED_TIMEOUT_MINUTES = 15
+
 # Album art is a square this fraction of the panel's short edge. Must match the art
 # dimensions in now_playing.css, so the browser never has to rescale what Pillow
 # produced - upscaling soft cast artwork looks noticeably worse on e-ink.
@@ -76,6 +81,15 @@ def include_paused(settings):
     return str(settings.get("includePaused", "true")).lower() != "false"
 
 
+def get_paused_timeout(settings):
+    """How long a paused player may hold the display, in seconds. 0 means indefinitely."""
+    try:
+        minutes = int(settings.get("pausedTimeout", DEFAULT_PAUSED_TIMEOUT_MINUTES))
+    except (TypeError, ValueError):
+        minutes = DEFAULT_PAUSED_TIMEOUT_MINUTES
+    return max(0, minutes) * 60
+
+
 class NowPlaying(BasePlugin):
     """Displays the track currently playing on a Home Assistant media player."""
 
@@ -89,6 +103,7 @@ class NowPlaying(BasePlugin):
         template_params["discovery_error"] = discovery_error
         template_params["home_assistant_url"] = base_url
         template_params["default_poll_interval"] = DEFAULT_POLL_INTERVAL
+        template_params["default_paused_timeout"] = DEFAULT_PAUSED_TIMEOUT_MINUTES
         template_params["api_key"] = {
             "required": True,
             "service": "Home Assistant",

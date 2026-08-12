@@ -13,7 +13,12 @@ from plugins.now_playing.home_assistant import (
     fetch_artwork,
     find_active,
 )
-from plugins.now_playing.now_playing import get_entity_ids, get_poll_interval, include_paused
+from plugins.now_playing.now_playing import (
+    get_entity_ids,
+    get_paused_timeout,
+    get_poll_interval,
+    include_paused,
+)
 from refresh_task import NowPlayingWatcher
 
 BASE_URL = "http://homeassistant.local:8123"
@@ -323,6 +328,19 @@ class TestSettingsParsing:
 
         assert include_paused(settings) is expected
 
+    @pytest.mark.parametrize("value,expected", [
+        (None, 15 * 60),        # default
+        ("30", 30 * 60),
+        (30, 30 * 60),
+        ("0", 0),               # hold indefinitely
+        ("-5", 0),
+        ("not a number", 15 * 60),
+    ])
+    def test_paused_timeout_in_seconds(self, value, expected):
+        settings = {} if value is None else {"pausedTimeout": value}
+
+        assert get_paused_timeout(settings) == expected
+
 
 def make_playlist(*plugins):
     return Playlist("Default", "00:00", "24:00", plugins=[
@@ -391,19 +409,159 @@ class TestNowPlayingWatcher:
         assert state.title == "Song"
         assert just_stopped is False
 
-    def test_detects_the_stop_transition_once(self, watcher, states):
+    def test_asks_for_the_playlist_back_when_playback_stops(self, watcher, states):
         states["media_player.group"] = make_entity("media_player.group", "playing")
         watcher.poll(StubInstance())
 
         states["media_player.group"] = make_entity("media_player.group", "idle")
 
-        assert watcher.poll(StubInstance())[1] is True, "playback stopping should force the playlist to resume"
-        assert watcher.poll(StubInstance())[1] is False, "the stop transition must not repeat"
+        assert watcher.poll(StubInstance())[1] is True
 
-    def test_idle_from_the_start_is_not_a_stop_transition(self, watcher, states):
+    def test_keeps_asking_until_the_playlist_actually_takes_over(self, watcher, states):
+        """A one-shot signal strands the last track on the panel whenever the resume
+        refresh does not land - no active playlist, nothing but watch-only instances."""
+        states["media_player.group"] = make_entity("media_player.group", "playing")
+        watcher.poll(StubInstance())
+        states["media_player.group"] = make_entity("media_player.group", "idle")
+
+        assert watcher.poll(StubInstance())[1] is True
+        assert watcher.poll(StubInstance())[1] is True, "resume must be retried, not dropped"
+        assert watcher.poll(StubInstance())[1] is True
+
+        watcher.mark_released()
+
+        assert watcher.poll(StubInstance())[1] is False, "stop asking once the playlist has it"
+
+    def test_does_not_ask_for_a_resume_it_never_took_over_for(self, watcher, states):
         states["media_player.group"] = make_entity("media_player.group", "idle")
 
         assert watcher.poll(StubInstance()) == (None, False)
+
+
+class TestPausedHold:
+    """A player parked in `paused` must not own the display forever.
+
+    Cast groups and Music Assistant players routinely sit in `paused` rather than going
+    idle when playback stops, which is the difference between "keep the track up while I
+    grab a drink" and "the panel is stuck on last night's album".
+    """
+
+    def paused_instance(self, timeout_minutes):
+        return StubInstance(settings={
+            "entityIds[]": ["media_player.group"],
+            "watchOnly": "true",
+            "pausedTimeout": str(timeout_minutes),
+        })
+
+    def test_a_short_pause_keeps_the_track_on_screen(self, watcher, states, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(home_assistant, "get_state", lambda *a, **k: NowPlayingState.from_entity(
+            make_entity("media_player.group", "paused")))
+        monkeypatch.setattr("refresh_task.time.monotonic", lambda: clock[0])
+
+        instance = self.paused_instance(15)
+        assert watcher.poll(instance)[0] is not None
+
+        clock[0] += 14 * 60
+        state, should_resume = watcher.poll(instance)
+        assert state is not None, "still paused within the hold window"
+        assert should_resume is False
+
+    def test_a_long_pause_releases_the_display(self, watcher, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(home_assistant, "get_state", lambda *a, **k: NowPlayingState.from_entity(
+            make_entity("media_player.group", "paused")))
+        monkeypatch.setattr("refresh_task.time.monotonic", lambda: clock[0])
+
+        instance = self.paused_instance(15)
+        watcher.poll(instance)
+
+        clock[0] += 16 * 60
+        state, should_resume = watcher.poll(instance)
+        assert state is None, "an indefinitely paused player must give the display back"
+        assert should_resume is True
+
+    def test_resuming_playback_restarts_the_clock(self, watcher, monkeypatch):
+        clock = [1000.0]
+        entity = {"value": make_entity("media_player.group", "paused")}
+        monkeypatch.setattr(home_assistant, "get_state",
+                            lambda *a, **k: NowPlayingState.from_entity(entity["value"]))
+        monkeypatch.setattr("refresh_task.time.monotonic", lambda: clock[0])
+
+        instance = self.paused_instance(15)
+        watcher.poll(instance)
+
+        clock[0] += 14 * 60
+        entity["value"] = make_entity("media_player.group", "playing")
+        watcher.poll(instance)
+
+        clock[0] += 60
+        entity["value"] = make_entity("media_player.group", "paused")
+        watcher.poll(instance)
+        clock[0] += 14 * 60
+
+        assert watcher.poll(instance)[0] is not None, "the pause window restarts after playing"
+
+    def test_a_released_pause_is_not_picked_straight_back_up(self, watcher, monkeypatch):
+        """Re-acquiring a still-paused player flips the panel once per timeout period,
+        which is worse than the stuck display it was meant to fix."""
+        clock = [1000.0]
+        monkeypatch.setattr(home_assistant, "get_state", lambda *a, **k: NowPlayingState.from_entity(
+            make_entity("media_player.group", "paused")))
+        monkeypatch.setattr("refresh_task.time.monotonic", lambda: clock[0])
+
+        instance = self.paused_instance(15)
+        watcher.poll(instance)
+        clock[0] += 16 * 60
+        assert watcher.poll(instance)[0] is None
+        watcher.mark_released()  # the playlist has taken the display back
+
+        for _ in range(3):
+            clock[0] += 16 * 60
+            state, should_resume = watcher.poll(instance)
+            assert state is None, "a still-paused player must stay released"
+            assert should_resume is False, "and must not keep demanding the playlist"
+
+    def test_pressing_play_again_takes_the_display_back(self, watcher, monkeypatch):
+        clock = [1000.0]
+        entity = {"value": make_entity("media_player.group", "paused")}
+        monkeypatch.setattr(home_assistant, "get_state",
+                            lambda *a, **k: NowPlayingState.from_entity(entity["value"]))
+        monkeypatch.setattr("refresh_task.time.monotonic", lambda: clock[0])
+
+        instance = self.paused_instance(15)
+        watcher.poll(instance)
+        clock[0] += 16 * 60
+        watcher.poll(instance)
+        watcher.mark_released()
+
+        entity["value"] = make_entity("media_player.group", "playing")
+
+        assert watcher.poll(instance)[0] is not None, "resuming playback must take over again"
+
+    def test_zero_holds_indefinitely(self, watcher, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(home_assistant, "get_state", lambda *a, **k: NowPlayingState.from_entity(
+            make_entity("media_player.group", "paused")))
+        monkeypatch.setattr("refresh_task.time.monotonic", lambda: clock[0])
+
+        instance = self.paused_instance(0)
+        watcher.poll(instance)
+
+        clock[0] += 24 * 60 * 60
+        assert watcher.poll(instance)[0] is not None
+
+    def test_playing_is_never_timed_out(self, watcher, monkeypatch):
+        clock = [1000.0]
+        monkeypatch.setattr(home_assistant, "get_state", lambda *a, **k: NowPlayingState.from_entity(
+            make_entity("media_player.group", "playing")))
+        monkeypatch.setattr("refresh_task.time.monotonic", lambda: clock[0])
+
+        instance = self.paused_instance(15)
+        watcher.poll(instance)
+
+        clock[0] += 10 * 60 * 60
+        assert watcher.poll(instance)[0] is not None, "a long album is not a stalled pause"
 
     def test_an_outage_is_not_treated_as_playback_stopping(self, watcher, monkeypatch):
         """Otherwise a network blip would flap the display off the track and back."""

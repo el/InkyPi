@@ -94,6 +94,17 @@
     </div>
 
     <div class="form-group">
+        <label for="pausedTimeout" class="form-label">Release After Paused For (minutes):</label>
+        <input type="number" id="pausedTimeout" name="pausedTimeout" class="form-input"
+               min="0" max="1440" value="{{ default_paused_timeout }}">
+        <small style="width: 100%; color: var(--text-primary);">
+            Only applies when the setting above is on. Many speakers park in "paused" instead of
+            going idle when you stop the music, which would otherwise leave the last track on the
+            display indefinitely. Set to 0 to hold forever.
+        </small>
+    </div>
+
+    <div class="form-group">
         <label for="showSource" class="form-label">Show Speaker and App Name:</label>
         <div class="toggle-container">
             <input type="checkbox" id="showSource" name="showSource" class="toggle-checkbox" value="true"
@@ -180,6 +191,10 @@
             document.getElementById('manualEntityIds').value = pluginSettings.manualEntityIds || '';
             document.getElementById('pollInterval').value =
                 pluginSettings.pollInterval || {{ default_poll_interval }};
+            document.getElementById('pausedTimeout').value =
+                pluginSettings.pausedTimeout !== undefined
+                    ? pluginSettings.pausedTimeout
+                    : {{ default_paused_timeout }};
 
             toggles.forEach((name) => {
                 if (pluginSettings[name] === undefined) return;
