@@ -58,7 +58,17 @@ every member report playing too, and the group entity carries the friendlier nam
 | Poll Interval | 30s | How often Home Assistant is checked (minimum 5s) |
 | Watch Only | on | Take over the display; stay out of playlist rotation |
 | Keep Showing When Paused | on | Off returns to the playlist as soon as you pause |
+| Release After Paused For | 15 min | Hands the display back when a pause never ends. 0 holds forever |
 | Show Speaker and App Name | on | Footer line under the track details |
+
+### Why the pause release exists
+
+Cast groups and Music Assistant players commonly park in `paused` rather than going
+idle when you stop the music. With an unbounded "keep showing when paused" hold, that
+leaves the last track on the panel indefinitely. After the release timeout the playlist
+takes over, and the paused player stays released until it actually starts playing again
+— it is not picked back up on the next poll, which would flip the display once per
+timeout period.
 
 ## Notes and limitations
 
