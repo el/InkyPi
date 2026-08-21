@@ -254,6 +254,16 @@ class RefreshTask:
                                 # Only now is the display genuinely handed back. Releasing
                                 # any earlier loses the resume if this refresh falls through.
                                 self.now_playing_watcher.mark_released()
+                            elif should_resume:
+                                # Nothing can take the display back, so the last track stays on
+                                # the panel. Usually a playlist whose time range does not cover
+                                # the current time - a range with the same start and end time
+                                # covers nothing at all.
+                                logger.warning(
+                                    "Playback stopped but no playlist plugin is available to take "
+                                    "the display back, so the last track stays on the panel. Check "
+                                    "that a playlist is active at this time of day and has at least "
+                                    "one plugin that is not watch only.")
 
                     if refresh_action:
                         plugin_config = self.device_config.get_plugin(refresh_action.get_plugin_id())
